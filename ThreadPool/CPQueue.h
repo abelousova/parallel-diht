@@ -1,6 +1,6 @@
 #include <boost\thread.hpp>
 
-#include <ConcurrentPriorityQueue.h>
+#include "ConcurrentPriorityQueue.h"
 
 template <class Key, class Value, class Compare = std::not1(std::less<Key>)>
 class CPQueue {

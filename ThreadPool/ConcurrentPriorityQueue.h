@@ -1,6 +1,10 @@
 #include <vector>
 #include <memory>
 #include <boost\thread.hpp>
+#include <atomic>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
 
 template<class Key, class Value>
 class Node {
@@ -66,6 +70,7 @@ private:
 	AtomicBoolVector isNodeLockedVector;
 
 	size_t heapify(const size_t index);
+	void heapifyWithoutLock(const size_t index);
 	void pushUp(size_t index);
 	std::atomic<int> lastIndex;
 
@@ -95,6 +100,60 @@ int QUEUE::getLeft(const size_t index) {
 template <class Key, class Value, class Compare>
 int QUEUE::getRight(const size_t index) {
 	return 2 * (index + 1);
+}
+
+template <class Key, class Value, class Compare>
+QUEUE::ConcurrentPriorityQueue(const std::vector<std::pair<Key, Value>>& vector) {
+	for (size_t i = 0; i < vector.size(); ++i) {
+		heap.emplace_back(Node<Key, Value>(key, std::make_shared<Value>(value)));
+	}
+	for (size_t i = (heap.size() + 1) / 2 - 1; i >= 0; --i) {
+		heapifyWithoutLock(i);
+	}
+}
+
+template <class Key, class Value, class Compare>
+void QUEUE::heapifyWithoutLock(const size_t index) {
+	const NodePtr currentNodePtr = heap[index];
+	NodePtr leftNodePtr;
+	NodePtr rightNodePtr;
+
+	if (getLeft(index) < heap.size()) {
+		leftNodePtr = heap[getLeft(index)];
+	}
+	else {
+		return;
+	}
+	if (getRight(index) < heap.size()) {
+		rightNodePtr = heap[getRight(index)];
+	}
+	else {
+		rightNodePtr = nullptr;
+	}
+
+	int minIndex;
+	NodePtr minNodePtr = currentNodePtr;
+
+	if (compare(leftNodePtr->getKey(), currentNodePtr->getKey())) {
+		minIndex = getLeft(index);
+		minNodePtr = leftNodePtr;
+	}
+
+	if ((rightNodePtr != nullptr) && (compare(rightNodePtr->getKey(), minNodePtr->getKey()))) {
+		minIndex = getRight(index);
+		minNodePtr = rightNodePtr;
+	}
+
+
+	if (index != minIndex) {
+		heap[index] = minNodePtr;
+		heap[minIndex] = currentNodePtr;
+
+		heapifyWithoutLock(minIndex);
+	}
+	else {
+		return;
+	}
 }
 
 template <class Key, class Value, class Compare>
@@ -244,9 +303,8 @@ typename QUEUE::ValuePtr QUEUE::extractNext() {
 	{
 		std::unique_lock<std::mutex> uniqueConditionLock(conditionalMutex_);
 		condition_.wait(uniqueConditionLock, [this]()->bool {
-			changeSizeMutex.lock_shared();
+			boost::shared_lock<boost::shared_mutex> changeSizeGuard(changeSizeMutex);
 			bool isNotEmpty = (heap.size() > 0);
-			changeSizeMutex.unlock_shared();
 			return isNotEmpty || closingFlag_;
 		});
 		
@@ -285,19 +343,6 @@ typename QUEUE::ValuePtr QUEUE::extractNext() {
 		
 	extractInsertMutex.unlock_shared();
 	return rootNodePtr->getValue();
-}
-
-template <class Key, class Value, class Compare>
-bool QUEUE::isEmpty() {
-	changeSizeMutex.lock_shared();
-	if (heap.size() == 0) {
-		changeSizeMutex.unlock_shared();
-		return true;
-	}
-	else {
-		changeSizeMutex.unlock_shared();
-		return false;
-	}
 }
 
 template <class Key, class Value, class Compare>

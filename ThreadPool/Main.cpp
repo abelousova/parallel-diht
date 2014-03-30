@@ -1,40 +1,61 @@
 #include "ThreadPool.h"
 
-#include <cstdlib>
+#include <cassert>
+#include <vector>
 
-int main() {	
-	/*
-	ThreadPool<int, int> threadPool(10);
-	std::vector<std::future<int>> futureVector;
-	for (size_t i = 0; i < 50000; ++i) {
-		futureVector.push_back(threadPool.addTask([i]() -> int {
-			return i;
-		}, i));
+typedef std::vector<std::vector<int>> intMatrix;
+typedef std::vector<std::vector<std::future<int>>> futureIntMatrix;
+
+intMatrix oneThreadMultiply(intMatrix& a, intMatrix& b) {
+	intMatrix result;
+
+	result.resize(a.size());
+	for (size_t i = 0; i < a.size(); i++) {
+		result[i].resize(a.size());
 	}
-	
-	std::cout << futureVector[1].get() << std::endl;
-	*/
 
-	const size_t arraySize = 100;
+	for (size_t i = 0; i < a.size(); ++i) {
+		for (size_t j = 0; j < a.size(); j++) {
+			result[i][j] = 0;
+			for (size_t index = 0; index < a.size(); ++index) {
+				result[i][j] += a[i][index] * b[index][j];
+			}				
+		}
+	}
+	return result;
+}
 
-	ThreadPool<int, int> threadPool(4);
-	std::future<int> result[arraySize][arraySize];
-	int a[arraySize][arraySize];
-	int b[arraySize][arraySize];
+intMatrix generateMatrix(size_t arraySize) {
+	intMatrix result;
+
+	result.resize(arraySize);
+	for (size_t i = 0; i < arraySize; i++) {
+		result[i].resize(arraySize);
+	}
 
 	for (size_t i = 0; i < arraySize; ++i) {
 		for (size_t j = 0; j < arraySize; j++) {
-			a[i][j] = rand() % 10;
-			b[i][j] = rand() % 10;
+			result[i][j] = rand() % 10;
 		}
+	}
+	return result;
+}
+
+futureIntMatrix multyTreadMultiply(intMatrix& a, intMatrix& b) {
+	ThreadPool<int, int> threadPool(4);
+	futureIntMatrix result;
+
+	result.resize(a.size());
+	for (size_t i = 0; i < a.size(); i++) {
+		result[i].resize(a.size());
 	}
 
 	size_t k = 0;
-	for (size_t i = 0; i < arraySize; ++i) {
-		for (size_t j = 0; j < arraySize; j++) {
+	for (size_t i = 0; i < a.size(); ++i) {
+		for (size_t j = 0; j < a.size(); j++) {
 			result[i][j] = threadPool.addTask([=, &a, &b]()->int {
 				int res = 0;
-				for (size_t index = 0; index < arraySize; ++index) {
+				for (size_t index = 0; index < a.size(); ++index) {
 					res += a[i][index] * b[index][j];
 				}
 				return res;
@@ -42,13 +63,27 @@ int main() {
 			k++;
 		}
 	}
+	return result;
+}
 
-	/*
-	for (size_t i = 0; i < arraySize; ++i) {
-		for (size_t j = 0; j < arraySize; j++) {
-			std::cout << result[i][j].get() << "  ";
+void compare(intMatrix& a, futureIntMatrix& b) {
+	for (size_t i = 0; i < a.size(); ++i) {
+		for (size_t j = 0; j < a.size(); j++) {
+			assert(b[i][j].get() == a[i][j]);
 		}
-		std::cout << std::endl;
 	}
-	*/
+}
+
+void matrixTest() {
+	intMatrix a = generateMatrix(100);
+	intMatrix b = generateMatrix(100);
+
+	intMatrix oneThreadResult = oneThreadMultiply(a, b);
+	futureIntMatrix multyTreadResult = multyTreadMultiply(a, b);
+
+	compare(oneThreadResult, multyTreadResult);
+}
+
+int main() {	
+	matrixTest();
 }
