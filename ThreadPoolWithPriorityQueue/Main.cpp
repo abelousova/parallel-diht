@@ -75,8 +75,8 @@ void compare(intMatrix& a, futureIntMatrix& b) {
 }
 
 void matrixTest() {
-	intMatrix a = generateMatrix(100);
-	intMatrix b = generateMatrix(100);
+	intMatrix a = generateMatrix(50);
+	intMatrix b = generateMatrix(50);
 
 	intMatrix oneThreadResult = oneThreadMultiply(a, b);
 	futureIntMatrix multyTreadResult = multyTreadMultiply(a, b);

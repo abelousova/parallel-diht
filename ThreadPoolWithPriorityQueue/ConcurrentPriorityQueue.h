@@ -5,6 +5,7 @@
 #include <mutex>
 #include <thread>
 #include <condition_variable>
+#include <cassert>
 
 template<class Key, class Value>
 class Node {
@@ -15,7 +16,7 @@ public:
 	Node(const Key& key, const ValuePtr& value) : 
 		_key(key), 
 		_value(value) {
-		_mutex.unlock();
+		//_mutex.unlock();
 	}
 
 	void lock() { _mutex.lock(); }
@@ -30,7 +31,7 @@ private:
 	Key _key;
 	ValuePtr _value;
 
-	SpinMutex _mutex;
+	//SpinMutex _mutex;
 };
 
 template <class Key, class Value, class Compare = std::less<Key>>
@@ -158,14 +159,23 @@ void QUEUE::heapifyWithoutLock(const size_t index) {
 
 template <class Key, class Value, class Compare>
 typename QUEUE::NodePtr QUEUE::lockNodeByIndexSizeNotLocked(const size_t index) { 
+	if (index >= heap.size()) {
+		return nullptr;
+	}
 	while (true) {
 		bool expected = false;
-		boost::lock_guard<ReadWriteLock> guard(changeSizeMutex);
-		if (index >= heap.size()) {
-			return nullptr;
+		//boost::lock_guard<ReadWriteLock> guard(changeSizeMutex);
+		boost::shared_lock<ReadWriteLock> guard(changeSizeMutex);
+		try {
+			if (index >= heap.size()) {
+				return nullptr;
+			}
+			if (isNodeLockedVector[index]->compare_exchange_strong(expected, true)) {
+				break;
+			}
 		}
-		if (isNodeLockedVector[index]->compare_exchange_strong(expected, true)) {
-			break;
+		catch (...) {
+			return nullptr;
 		}
 	}
 	return heap[index];
@@ -212,9 +222,12 @@ void QUEUE::unlockChildren(NodePtr leftNodePtr, NodePtr rightNodePtr, const size
 
 template <class Key, class Value, class Compare>
 size_t QUEUE::heapify(const size_t index) {
+	//std::cout << "heapify" << std::endl;
 	if (index == lastIndex) {
 		return index;
 	}
+	assert((bool)isNodeLockedVector[index]);
+	//std::cout << (bool)isNodeLockedVector[index] << std::endl;
 	const NodePtr currentNodePtr = heap[index];
 
 	NodePtr leftNodePtr = lockNodeByIndexSizeNotLocked(getLeft(index));
@@ -227,7 +240,7 @@ size_t QUEUE::heapify(const size_t index) {
 	int minIndex;
 	NodePtr minNodePtr = currentNodePtr;
 	Child swappedChild = none;
-
+	
 	if (compare(leftNodePtr->getKey(), currentNodePtr->getKey())) {
 		minIndex = getLeft(index);
 		minNodePtr = leftNodePtr;
@@ -239,13 +252,12 @@ size_t QUEUE::heapify(const size_t index) {
 		minNodePtr = rightNodePtr;
 		swappedChild = right;
 	}
-
 	
 	if (swappedChild != none) {
 		heap[index] = minNodePtr;
 		heap[minIndex] = currentNodePtr;
 		unlockChildren(leftNodePtr, rightNodePtr, index, swappedChild);
-
+		//return minIndex;
 		return heapify(minIndex);
 	}
 	else {
@@ -336,11 +348,12 @@ typename QUEUE::ValuePtr QUEUE::extractNext() {
 		isNodeLockedVector.pop_back();
 		--lastIndex;	
 	}
-
 	size_t finalIndex = heapify(0);
 
 	isNodeLockedVector[finalIndex]->store(false);
-		
+
+
+	//isNodeLockedVector[0]->store(false);
 	extractInsertMutex.unlock_shared();
 	return rootNodePtr->getValue();
 }
